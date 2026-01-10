@@ -1,7 +1,6 @@
 // App State
 let currentUser = null;
 let tasks = [];
-let users = [];
 let lastToggledId = null;
 
 const DEFAULT_CSV_DATA = `Task ID,Room,Task,Frequency,Last Completed,,,Notes
@@ -69,114 +68,178 @@ const views = {
     adminPanel: document.getElementById('admin-panel')
 };
 
+// Helper function to convert database snake_case to camelCase
+function dbToJs(dbTask) {
+    return {
+        id: dbTask.id,
+        room: dbTask.room,
+        task: dbTask.task,
+        frequency: dbTask.frequency,
+        lastCompleted: dbTask.last_completed,
+        nextDue: dbTask.next_due,
+        completedThisCycle: dbTask.completed_this_cycle
+    };
+}
+
+// Helper function to convert JS camelCase to database snake_case
+function jsToDb(jsTask) {
+    return {
+        room: jsTask.room,
+        task: jsTask.task,
+        frequency: jsTask.frequency,
+        last_completed: jsTask.lastCompleted || null,
+        next_due: jsTask.nextDue,
+        completed_this_cycle: jsTask.completedThisCycle || false
+    };
+}
+
+// --- Supabase Database Operations ---
+
+async function loadTasks() {
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (error) throw error;
+
+        tasks = data.map(dbToJs);
+        return tasks;
+    } catch (error) {
+        console.error('Error loading tasks:', error);
+        return [];
+    }
+}
+
+async function saveTask(task) {
+    try {
+        const dbTask = jsToDb(task);
+        
+        if (task.id) {
+            // Update existing task
+            const { data, error } = await supabase
+                .from('tasks')
+                .update(dbTask)
+                .eq('id', task.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return dbToJs(data);
+        } else {
+            // Insert new task
+            const { data, error } = await supabase
+                .from('tasks')
+                .insert(dbTask)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return dbToJs(data);
+        }
+    } catch (error) {
+        console.error('Error saving task:', error);
+        throw error;
+    }
+}
+
+async function deleteTaskFromDb(taskId) {
+    try {
+        const { error } = await supabase
+            .from('tasks')
+            .delete()
+            .eq('id', taskId);
+
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        throw error;
+    }
+}
+
+async function bulkInsertTasks(taskArray) {
+    try {
+        const dbTasks = taskArray.map(jsToDb);
+        const { data, error } = await supabase
+            .from('tasks')
+            .insert(dbTasks)
+            .select();
+
+        if (error) throw error;
+        return data.map(dbToJs);
+    } catch (error) {
+        console.error('Error bulk inserting tasks:', error);
+        throw error;
+    }
+}
+
+async function deleteAllTasks() {
+    try {
+        const { error } = await supabase
+            .from('tasks')
+            .delete()
+            .neq('id', 0); // Delete all tasks
+
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error deleting all tasks:', error);
+        throw error;
+    }
+}
+
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
 });
 
-function initApp() {
-    loadData();
+async function initApp() {
     setupEventListeners();
-    checkSession();
+    await checkSession();
 }
 
-function loadData() {
-    const savedTasks = localStorage.getItem('hometasks_tasks');
-    if (savedTasks) {
-        tasks = JSON.parse(savedTasks);
-    } else {
+async function loadData() {
+    const loadedTasks = await loadTasks();
+    
+    if (loadedTasks.length === 0) {
         // First run: Import default data
-        importCSV(DEFAULT_CSV_DATA);
-    }
-    
-    const savedUsers = localStorage.getItem('hometasks_users');
-    if (savedUsers) {
-        users = JSON.parse(savedUsers);
+        await importCSV(DEFAULT_CSV_DATA);
     } else {
-        users = [];
-    }
-
-    // Ensure default admin exists
-    if (!users.some(u => u.username === 'admin')) {
-        users.push({ username: 'admin', password: 'admin123', role: 'admin' });
-        localStorage.setItem('hometasks_users', JSON.stringify(users));
-    }
-
-    const session = localStorage.getItem('hometasks_session');
-    if (session) {
-        currentUser = JSON.parse(session);
+        tasks = loadedTasks;
     }
 }
 
-function importCSV(csvString) {
-    const lines = csvString.split('\n');
-    const newTasks = [];
-    
-    // Skip header
-    let monthlyCount = 0;
-    let quarterlyCount = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
+async function checkSession() {
+    try {
+        // Check if user is already logged in
+        const { data: { session } } = await supabase.auth.getSession();
         
-        // Simple CSV parser for quoted fields
-        const parts = [];
-        let current = "";
-        let inQuotes = false;
-        for (let char of lines[i]) {
-            if (char === '"') inQuotes = !inQuotes;
-            else if (char === ',' && !inQuotes) {
-                parts.push(current);
-                current = "";
-            } else current += char;
+        if (session) {
+            // Get user profile with role
+            const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('username, role')
+                .eq('id', session.user.id)
+                .single();
+
+            if (error) throw error;
+
+            currentUser = {
+                id: session.user.id,
+                username: profile.username,
+                role: profile.role
+            };
+
+            await loadData();
+            showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
+            updateUI();
+        } else {
+            showView('login');
         }
-        parts.push(current);
-
-        const id = Date.now() + i;
-        const room = parts[1];
-        const taskName = parts[2];
-        const freq = parts[3];
-        
-        // Initial Staggering Logic
-        let nextDue = new Date();
-        nextDue.setHours(0, 0, 0, 0);
-
-        if (freq === 'Monthly') {
-            // Stagger across 4 weeks
-            const weekOffset = monthlyCount % 4;
-            nextDue.setDate(nextDue.getDate() + (weekOffset * 7));
-            monthlyCount++;
-        } else if (freq === 'Quarterly') {
-            // Stagger across 12 weeks
-            const weekOffset = quarterlyCount % 12;
-            nextDue.setDate(nextDue.getDate() + (weekOffset * 7));
-            quarterlyCount++;
-        }
-
-        newTasks.push({
-            id: id,
-            room: room,
-            task: taskName,
-            frequency: freq,
-            lastCompleted: null,
-            nextDue: nextDue.toISOString().split('T')[0],
-            completedThisCycle: false
-        });
-    }
-    
-    tasks = newTasks;
-    saveTasks();
-}
-
-function saveTasks() {
-    localStorage.setItem('hometasks_tasks', JSON.stringify(tasks));
-}
-
-function checkSession() {
-    if (currentUser) {
-        showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
-        updateUI();
-    } else {
+    } catch (error) {
+        console.error('Error checking session:', error);
         showView('login');
     }
 }
@@ -220,9 +283,10 @@ function setupEventListeners() {
 
     // Admin Actions
     document.getElementById('add-task-btn')?.addEventListener('click', openAddTaskModal);
-    document.getElementById('import-csv-btn')?.addEventListener('click', () => {
+    document.getElementById('import-csv-btn')?.addEventListener('click', async () => {
         if (confirm("This will reset all your tasks and progress. Continue?")) {
-            importCSV(DEFAULT_CSV_DATA);
+            await importCSV(DEFAULT_CSV_DATA);
+            await loadData();
             updateUI();
         }
     });
@@ -233,56 +297,129 @@ function setupEventListeners() {
     document.getElementById('toggle-preview')?.addEventListener('click', togglePreview);
 }
 
-function handleLogin(e) {
+async function handleLogin(e) {
     e.preventDefault();
-    console.log("Login attempt...");
     const usernameInput = document.getElementById('username').value.toLowerCase().trim();
     const passwordInput = document.getElementById('password').value;
     const errorEl = document.getElementById('login-error');
+    errorEl.textContent = "";
 
-    console.log("Looking for user:", usernameInput);
-    const user = users.find(u => u.username === usernameInput && u.password === passwordInput);
+    try {
+        // For Supabase Auth, we need to use email. We'll use username@hometasks.local format
+        // Or you can modify to use email field instead
+        const email = `${usernameInput}@hometasks.local`;
+        
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: email,
+            password: passwordInput
+        });
 
-    if (user) {
-        console.log("User found:", user.username, "Role:", user.role);
-        currentUser = { username: user.username, role: user.role };
-        localStorage.setItem('hometasks_session', JSON.stringify(currentUser));
-        errorEl.textContent = "";
+        if (error) throw error;
+
+        // Get user profile
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('username, role')
+            .eq('id', data.user.id)
+            .single();
+
+        if (profileError) throw profileError;
+
+        currentUser = {
+            id: data.user.id,
+            username: profile.username,
+            role: profile.role
+        };
+
+        await loadData();
         showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
         updateUI();
-    } else {
-        console.log("User not found or password incorrect");
-        errorEl.textContent = "Invalid username or password";
+    } catch (error) {
+        console.error('Login error:', error);
+        errorEl.textContent = error.message || "Invalid username or password";
     }
 }
 
-function handleSignup(e) {
+async function handleSignup(e) {
     e.preventDefault();
     const username = document.getElementById('signup-username').value.toLowerCase().trim();
     const password = document.getElementById('signup-password').value;
     const errorEl = document.getElementById('signup-error');
-
-    if (users.some(u => u.username === username)) {
-        errorEl.textContent = "Username already exists";
-        return;
-    }
-
-    const newUser = { username, password, role: 'user' };
-    users.push(newUser);
-    localStorage.setItem('hometasks_users', JSON.stringify(users));
-
-    currentUser = { username: newUser.username, role: newUser.role };
-    localStorage.setItem('hometasks_session', JSON.stringify(currentUser));
-    
     errorEl.textContent = "";
-    showView('userDashboard');
-    updateUI();
+
+    try {
+        // Check if username already exists
+        const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', username)
+            .single();
+
+        if (existingProfile) {
+            errorEl.textContent = "Username already exists";
+            return;
+        }
+
+        // Create user with email format username@hometasks.local
+        const email = `${username}@hometasks.local`;
+        
+        const { data, error } = await supabase.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+                data: {
+                    username: username,
+                    role: 'user'
+                }
+            }
+        });
+
+        if (error) throw error;
+
+        // Profile should be created automatically by trigger, but let's verify
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('username, role')
+            .eq('id', data.user.id)
+            .single();
+
+        if (profileError) {
+            // If profile doesn't exist, create it manually
+            const { error: insertError } = await supabase
+                .from('profiles')
+                .insert({
+                    id: data.user.id,
+                    username: username,
+                    role: 'user'
+                });
+
+            if (insertError) throw insertError;
+        }
+
+        currentUser = {
+            id: data.user.id,
+            username: username,
+            role: 'user'
+        };
+
+        await loadData();
+        showView('userDashboard');
+        updateUI();
+    } catch (error) {
+        console.error('Signup error:', error);
+        errorEl.textContent = error.message || "Error creating account";
+    }
 }
 
-function handleLogout() {
-    currentUser = null;
-    localStorage.removeItem('hometasks_session');
-    showView('login');
+async function handleLogout() {
+    try {
+        await supabase.auth.signOut();
+        currentUser = null;
+        tasks = [];
+        showView('login');
+    } catch (error) {
+        console.error('Logout error:', error);
+    }
 }
 
 // --- UI Updates ---
@@ -299,7 +436,6 @@ function updateUI() {
     renderUserDashboard();
 }
 
-// Placeholder functions for next steps
 function renderUserDashboard() {
     const today = new Date();
     const startOfWeek = getStartOfWeek(today);
@@ -429,6 +565,7 @@ function updateProgressBar(current, delayed) {
     const percentage = Math.round((completed / total) * 100);
     document.getElementById('progress-fill').style.width = `${percentage}%`;
 }
+
 function renderAdminTable() {
     const tableBody = document.getElementById('admin-task-table-body');
     if (!tableBody) return;
@@ -480,38 +617,46 @@ function closeModal() {
     document.getElementById('task-modal').classList.add('hidden');
 }
 
-function handleSaveTask(e) {
+async function handleSaveTask(e) {
     e.preventDefault();
     const id = document.getElementById('edit-task-id').value;
     const room = document.getElementById('task-room').value;
     const taskName = document.getElementById('task-desc').value;
     const freq = document.getElementById('task-freq').value;
 
-    if (id) {
-        // Update
-        const task = tasks.find(t => t.id == id);
-        if (task) {
-            task.room = room;
-            task.task = taskName;
-            task.frequency = freq;
+    try {
+        let task;
+        if (id) {
+            // Update existing task
+            task = tasks.find(t => t.id == id);
+            if (task) {
+                task.room = room;
+                task.task = taskName;
+                task.frequency = freq;
+                await saveTask(task);
+            }
+        } else {
+            // Create new task
+            task = {
+                id: null,
+                room: room,
+                task: taskName,
+                frequency: freq,
+                lastCompleted: null,
+                nextDue: new Date().toISOString().split('T')[0],
+                completedThisCycle: false
+            };
+            const savedTask = await saveTask(task);
+            tasks.push(savedTask);
         }
-    } else {
-        // Create
-        const newTask = {
-            id: Date.now(),
-            room: room,
-            task: taskName,
-            frequency: freq,
-            lastCompleted: null,
-            nextDue: new Date().toISOString().split('T')[0],
-            completedThisCycle: false
-        };
-        tasks.push(newTask);
-    }
 
-    saveTasks();
-    updateUI();
-    closeModal();
+        await loadData();
+        updateUI();
+        closeModal();
+    } catch (error) {
+        console.error('Error saving task:', error);
+        alert('Error saving task. Please try again.');
+    }
 }
 
 function editTask(id) {
@@ -528,11 +673,16 @@ function editTask(id) {
     document.getElementById('task-modal').classList.remove('hidden');
 }
 
-function deleteTask(id) {
+async function deleteTask(id) {
     if (confirm("Are you sure you want to delete this task?")) {
-        tasks = tasks.filter(t => t.id != id);
-        saveTasks();
-        updateUI();
+        try {
+            await deleteTaskFromDb(id);
+            tasks = tasks.filter(t => t.id != id);
+            updateUI();
+        } catch (error) {
+            console.error('Error deleting task:', error);
+            alert('Error deleting task. Please try again.');
+        }
     }
 }
 
@@ -573,7 +723,68 @@ function calculateNextDueDate(lastCompleted, frequency) {
     return d.toISOString().split('T')[0];
 }
 
-function handleToggleTask(id) {
+async function importCSV(csvString) {
+    const lines = csvString.split('\n');
+    const newTasks = [];
+    
+    // Skip header
+    let monthlyCount = 0;
+    let quarterlyCount = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        // Simple CSV parser for quoted fields
+        const parts = [];
+        let current = "";
+        let inQuotes = false;
+        for (let char of lines[i]) {
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === ',' && !inQuotes) {
+                parts.push(current);
+                current = "";
+            } else current += char;
+        }
+        parts.push(current);
+
+        const room = parts[1];
+        const taskName = parts[2];
+        const freq = parts[3];
+        
+        // Initial Staggering Logic
+        let nextDue = new Date();
+        nextDue.setHours(0, 0, 0, 0);
+
+        if (freq === 'Monthly') {
+            // Stagger across 4 weeks
+            const weekOffset = monthlyCount % 4;
+            nextDue.setDate(nextDue.getDate() + (weekOffset * 7));
+            monthlyCount++;
+        } else if (freq === 'Quarterly') {
+            // Stagger across 12 weeks
+            const weekOffset = quarterlyCount % 12;
+            nextDue.setDate(nextDue.getDate() + (weekOffset * 7));
+            quarterlyCount++;
+        }
+
+        newTasks.push({
+            id: null,
+            room: room,
+            task: taskName,
+            frequency: freq,
+            lastCompleted: null,
+            nextDue: nextDue.toISOString().split('T')[0],
+            completedThisCycle: false
+        });
+    }
+    
+    // Delete all existing tasks and insert new ones
+    await deleteAllTasks();
+    const savedTasks = await bulkInsertTasks(newTasks);
+    tasks = savedTasks;
+}
+
+async function handleToggleTask(id) {
     const task = tasks.find(t => t.id == id);
     if (!task) return;
 
@@ -602,14 +813,20 @@ function handleToggleTask(id) {
         task.lastCompleted = null;
     }
 
-    saveTasks();
-    
-    // Brief delay before re-rendering to let the checkbox toggle visually
-    // and then trigger the "move to bottom" animation
-    setTimeout(() => {
-        updateUI();
-        // Clear the animation ID after a while so it doesn't re-trigger on other updates
-        setTimeout(() => { lastToggledId = null; }, 1000);
-    }, 150);
+    try {
+        await saveTask(task);
+        // Reload tasks to ensure sync
+        await loadData();
+        
+        // Brief delay before re-rendering to let the checkbox toggle visually
+        // and then trigger the "move to bottom" animation
+        setTimeout(() => {
+            updateUI();
+            // Clear the animation ID after a while so it doesn't re-trigger on other updates
+            setTimeout(() => { lastToggledId = null; }, 1000);
+        }, 150);
+    } catch (error) {
+        console.error('Error toggling task:', error);
+        alert('Error updating task. Please try again.');
+    }
 }
-
