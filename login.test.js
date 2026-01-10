@@ -8,6 +8,17 @@ test.describe('HomeTasks Tracker Login', () => {
     // Wait for the page to load
     await page.waitForLoadState('networkidle');
 
+    // Check for JavaScript errors
+    const errors = [];
+    page.on('pageerror', error => {
+      errors.push(error.message);
+    });
+
+    // Wait a bit for any initialization
+    await page.waitForTimeout(2000);
+
+    console.log('JavaScript errors:', errors);
+
     // Check if login view is visible
     const loginView = page.locator('#login-view');
     await expect(loginView).toBeVisible();

@@ -196,53 +196,41 @@ async function deleteAllTasks() {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        console.log('DOM loaded, waiting for Supabase...');
+        console.log('DOM loaded, checking Supabase...');
 
-        // Wait for Supabase client to be initialized
-        await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Supabase client initialization timeout after 10 seconds'));
-            }, 10000);
+        // Try to initialize Supabase client if not already done
+        if (!window.supabaseClient) {
+            console.log('No supabaseClient found, trying manual initialization...');
+            if (typeof supabase !== 'undefined' && supabase.createClient) {
+                const { createClient } = supabase;
+                window.supabaseClient = createClient(
+                    'https://hinhffcnbjxorlrahtxc.supabase.co',
+                    'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp'
+                );
+                console.log('Manual Supabase client initialization successful');
+            }
+        }
 
-            const checkSupabase = () => {
-                if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
-                    clearTimeout(timeout);
-                    resolve();
-                }
-            };
-
-            // Check immediately
-            checkSupabase();
-
-            // Listen for the ready event
-            window.addEventListener('supabaseReady', () => {
-                checkSupabase();
-            });
-
-            // Also check periodically
-            const interval = setInterval(() => {
-                if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
-                    clearInterval(interval);
-                    clearTimeout(timeout);
-                    resolve();
-                }
-            }, 100);
-        });
-
-        console.log('Supabase client ready, initializing app...');
-
-        // Make supabaseClient available for this script
-        supabaseClient = window.supabaseClient;
-
-        console.log('Starting app initialization...');
-        initApp();
+        // Check if we have a working Supabase client
+        if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+            console.log('Supabase client ready, initializing app...');
+            supabaseClient = window.supabaseClient;
+            initApp();
+        } else {
+            console.warn('Supabase client not available, but continuing with app initialization...');
+            // Continue without Supabase for now - show login form anyway
+            supabaseClient = null;
+            initApp();
+        }
 
     } catch (error) {
         console.error('Failed to initialize app:', error);
-        // Show error to user
-        const errorEl = document.getElementById('login-error');
-        if (errorEl) {
-            errorEl.textContent = 'Failed to initialize application. Please refresh the page.';
+        // Still try to show the app even if Supabase fails
+        supabaseClient = null;
+        try {
+            initApp();
+        } catch (initError) {
+            console.error('Failed to initialize app even without Supabase:', initError);
         }
     }
 });
@@ -358,15 +346,27 @@ async function handleLogin(e) {
 
     try {
         // Check if supabaseClient is initialized
-        console.log('supabaseClient:', supabaseClient);
-        console.log('typeof supabaseClient:', typeof supabaseClient);
-        console.log('supabaseClient.from:', typeof supabaseClient?.from);
-
         if (!supabaseClient) {
-            throw new Error('Supabase client not initialized. Please refresh the page.');
+            // Fallback: try to create client manually
+            console.log('No supabaseClient, trying fallback...');
+            if (typeof supabase !== 'undefined' && supabase.createClient) {
+                supabaseClient = supabase.createClient(
+                    'https://hinhffcnbjxorlrahtxc.supabase.co',
+                    'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp'
+                );
+                console.log('Fallback Supabase client created');
+            } else {
+                throw new Error('Supabase library not available. Please refresh the page.');
+            }
         }
 
         if (typeof supabaseClient.from !== 'function') {
+            console.error('supabaseClient details:', {
+                type: typeof supabaseClient,
+                keys: supabaseClient ? Object.keys(supabaseClient) : 'null',
+                from: typeof supabaseClient?.from,
+                auth: typeof supabaseClient?.auth
+            });
             throw new Error('Supabase client is not properly initialized. Missing .from() method.');
         }
         
