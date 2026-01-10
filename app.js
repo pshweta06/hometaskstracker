@@ -345,14 +345,26 @@ async function handleLogin(e) {
     const errorEl = document.getElementById('login-error');
     errorEl.textContent = "";
 
+    console.log('🔐 Login attempt - checking supabaseClient...');
+    console.log('supabaseClient:', supabaseClient);
+    console.log('typeof supabaseClient:', typeof supabaseClient);
+    console.log('window.supabaseClient exists:', !!window.supabaseClient);
+    console.log('window.supabaseClient.from:', typeof window.supabaseClient?.from);
+
     try {
         // Check if supabaseClient is initialized
         if (!supabaseClient) {
-            throw new Error('Supabase client not initialized. Please wait for the page to fully load.');
+            console.error('❌ supabaseClient is null/undefined');
+            if (window.supabaseClient) {
+                console.log('✅ window.supabaseClient exists, using it as fallback');
+                supabaseClient = window.supabaseClient;
+            } else {
+                throw new Error('Supabase client not initialized. Please wait for the page to fully load.');
+            }
         }
 
         if (typeof supabaseClient.from !== 'function') {
-            console.error('supabaseClient details:', {
+            console.error('❌ supabaseClient details:', {
                 type: typeof supabaseClient,
                 keys: supabaseClient ? Object.keys(supabaseClient) : 'null',
                 from: typeof supabaseClient?.from,
@@ -360,6 +372,8 @@ async function handleLogin(e) {
             });
             throw new Error('Supabase client is not properly initialized. Missing .from() method.');
         }
+
+        console.log('✅ supabaseClient ready for login');
         
         // For Supabase Auth, we need to use email. We'll use username@hometasks.local format
         // Or you can modify to use email field instead
