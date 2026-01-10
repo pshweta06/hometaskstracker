@@ -181,7 +181,7 @@ async function bulkInsertTasks(taskArray) {
 
 async function deleteAllTasks() {
     try {
-        const { error } = await supabase
+        const { error } = await supabaseClient
             .from('tasks')
             .delete()
             .neq('id', 0); // Delete all tasks
