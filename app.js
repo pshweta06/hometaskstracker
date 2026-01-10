@@ -194,40 +194,57 @@ async function deleteAllTasks() {
 }
 
 // --- Initialization ---
-// Wait for Supabase client to be initialized before starting the app
-function waitForSupabase() {
-    return new Promise((resolve) => {
-        if (window.supabaseClient) {
-            resolve();
-        } else {
-            window.addEventListener('supabaseReady', resolve, { once: true });
-            // Fallback: check periodically
-            const checkInterval = setInterval(() => {
-                if (window.supabaseClient) {
-                    clearInterval(checkInterval);
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        console.log('DOM loaded, waiting for Supabase...');
+
+        // Wait for Supabase client to be initialized
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Supabase client initialization timeout after 10 seconds'));
+            }, 10000);
+
+            const checkSupabase = () => {
+                if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+                    clearTimeout(timeout);
                     resolve();
                 }
-            }, 50);
-            // Timeout after 5 seconds
-            setTimeout(() => {
-                clearInterval(checkInterval);
-                console.error('Supabase client failed to initialize');
-                resolve(); // Continue anyway to show error
-            }, 5000);
-        }
-    });
-}
+            };
 
-document.addEventListener('DOMContentLoaded', async () => {
-    await waitForSupabase();
-    // Make supabaseClient available for this script
-    if (!window.supabaseClient) {
-        console.error('Supabase client not initialized');
-        return;
+            // Check immediately
+            checkSupabase();
+
+            // Listen for the ready event
+            window.addEventListener('supabaseReady', () => {
+                checkSupabase();
+            });
+
+            // Also check periodically
+            const interval = setInterval(() => {
+                if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+                    clearInterval(interval);
+                    clearTimeout(timeout);
+                    resolve();
+                }
+            }, 100);
+        });
+
+        console.log('Supabase client ready, initializing app...');
+
+        // Make supabaseClient available for this script
+        supabaseClient = window.supabaseClient;
+
+        console.log('Starting app initialization...');
+        initApp();
+
+    } catch (error) {
+        console.error('Failed to initialize app:', error);
+        // Show error to user
+        const errorEl = document.getElementById('login-error');
+        if (errorEl) {
+            errorEl.textContent = 'Failed to initialize application. Please refresh the page.';
+        }
     }
-    // Assign to module-level variable
-    supabaseClient = window.supabaseClient;
-    initApp();
 });
 
 async function initApp() {
@@ -341,8 +358,16 @@ async function handleLogin(e) {
 
     try {
         // Check if supabaseClient is initialized
+        console.log('supabaseClient:', supabaseClient);
+        console.log('typeof supabaseClient:', typeof supabaseClient);
+        console.log('supabaseClient.from:', typeof supabaseClient?.from);
+
         if (!supabaseClient) {
             throw new Error('Supabase client not initialized. Please refresh the page.');
+        }
+
+        if (typeof supabaseClient.from !== 'function') {
+            throw new Error('Supabase client is not properly initialized. Missing .from() method.');
         }
         
         // For Supabase Auth, we need to use email. We'll use username@hometasks.local format

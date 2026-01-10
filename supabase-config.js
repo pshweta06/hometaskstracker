@@ -5,54 +5,44 @@
 const SUPABASE_URL = 'https://hinhffcnbjxorlrahtxc.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp';
 
-// Initialize Supabase client
-// When using CDN, supabase is available as a global variable
-// Ensure supabase is loaded before initializing
-(function() {
-    let retryCount = 0;
-    const maxRetries = 100; // 5 seconds max wait (100 * 50ms)
-    
-    function initSupabaseClient() {
-        retryCount++;
-        
-        if (typeof supabase !== 'undefined' && supabase && typeof supabase.createClient === 'function') {
+// Initialize Supabase client synchronously
+(function initializeSupabaseClient() {
+    // Wait for the supabaseLoaded promise from the HTML script
+    window.supabaseLoaded.then((supabaseLib) => {
+        if (supabaseLib && typeof supabaseLib.createClient === 'function') {
             try {
-                const { createClient } = supabase;
+                const { createClient } = supabaseLib;
                 const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                
+
                 // Verify the client has the expected methods
-                if (client && typeof client.from === 'function') {
+                console.log('Created client:', client);
+                console.log('Client methods:', {
+                    hasFrom: typeof client?.from === 'function',
+                    hasAuth: typeof client?.auth === 'object',
+                    clientType: typeof client,
+                    clientKeys: client ? Object.keys(client) : 'no client'
+                });
+
+                if (client && typeof client.from === 'function' && typeof client.auth === 'object') {
                     window.supabaseClient = client;
                     console.log('Supabase client initialized successfully');
                     // Dispatch event to notify that supabaseClient is ready
                     window.dispatchEvent(new Event('supabaseReady'));
                 } else {
-                    console.error('Supabase client created but missing .from() method');
-                    if (retryCount < maxRetries) {
-                        setTimeout(initSupabaseClient, 50);
-                    }
+                    console.error('Supabase client created but missing required methods:', {
+                        hasFrom: typeof client?.from === 'function',
+                        hasAuth: typeof client?.auth === 'object',
+                        client: !!client
+                    });
                 }
             } catch (error) {
                 console.error('Error creating Supabase client:', error);
-                if (retryCount < maxRetries) {
-                    setTimeout(initSupabaseClient, 50);
-                }
             }
         } else {
-            if (retryCount < maxRetries) {
-                // Retry after a short delay if supabase isn't loaded yet
-                setTimeout(initSupabaseClient, 50);
-            } else {
-                console.error('Supabase library failed to load after', maxRetries, 'retries');
-            }
+            console.error('Supabase library not available or missing createClient method');
         }
-    }
-    
-    // Start initialization immediately
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initSupabaseClient);
-    } else {
-        initSupabaseClient();
-    }
+    }).catch((error) => {
+        console.error('Failed to load Supabase library:', error);
+    });
 })();
 
