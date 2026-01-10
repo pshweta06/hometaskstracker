@@ -3,6 +3,9 @@ let currentUser = null;
 let tasks = [];
 let lastToggledId = null;
 
+// Supabase client (will be initialized by supabase-config.js)
+let supabaseClient;
+
 const DEFAULT_CSV_DATA = `Task ID,Room,Task,Frequency,Last Completed,,,Notes
 1,Living + Dining,General Dusting,Weekly,2026-01-02,,,
 2,Living + Dining,Vacuum sofa,Weekly,2026-01-02,,,
@@ -97,7 +100,7 @@ function jsToDb(jsTask) {
 
 async function loadTasks() {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('tasks')
             .select('*')
             .order('id', { ascending: true });
@@ -118,7 +121,7 @@ async function saveTask(task) {
         
         if (task.id) {
             // Update existing task
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('tasks')
                 .update(dbTask)
                 .eq('id', task.id)
@@ -129,7 +132,7 @@ async function saveTask(task) {
             return dbToJs(data);
         } else {
             // Insert new task
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('tasks')
                 .insert(dbTask)
                 .select()
@@ -162,7 +165,7 @@ async function deleteTaskFromDb(taskId) {
 async function bulkInsertTasks(taskArray) {
     try {
         const dbTasks = taskArray.map(jsToDb);
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('tasks')
             .insert(dbTasks)
             .select();
@@ -191,7 +194,39 @@ async function deleteAllTasks() {
 }
 
 // --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
+// Wait for Supabase client to be initialized before starting the app
+function waitForSupabase() {
+    return new Promise((resolve) => {
+        if (window.supabaseClient) {
+            resolve();
+        } else {
+            window.addEventListener('supabaseReady', resolve, { once: true });
+            // Fallback: check periodically
+            const checkInterval = setInterval(() => {
+                if (window.supabaseClient) {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 50);
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                console.error('Supabase client failed to initialize');
+                resolve(); // Continue anyway to show error
+            }, 5000);
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await waitForSupabase();
+    // Make supabaseClient available for this script
+    if (!window.supabaseClient) {
+        console.error('Supabase client not initialized');
+        return;
+    }
+    // Assign to module-level variable
+    supabaseClient = window.supabaseClient;
     initApp();
 });
 
@@ -214,11 +249,11 @@ async function loadData() {
 async function checkSession() {
     try {
         // Check if user is already logged in
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
         
         if (session) {
             // Get user profile with role
-            const { data: profile, error } = await supabase
+            const { data: profile, error } = await supabaseClient
                 .from('profiles')
                 .select('username, role')
                 .eq('id', session.user.id)
@@ -305,11 +340,16 @@ async function handleLogin(e) {
     errorEl.textContent = "";
 
     try {
+        // Check if supabaseClient is initialized
+        if (!supabaseClient) {
+            throw new Error('Supabase client not initialized. Please refresh the page.');
+        }
+        
         // For Supabase Auth, we need to use email. We'll use username@hometasks.local format
         // Or you can modify to use email field instead
         const email = `${usernameInput}@hometasks.local`;
         
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
             email: email,
             password: passwordInput
         });
@@ -317,7 +357,7 @@ async function handleLogin(e) {
         if (error) throw error;
 
         // Get user profile
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await supabaseClient
             .from('profiles')
             .select('username, role')
             .eq('id', data.user.id)
@@ -349,7 +389,7 @@ async function handleSignup(e) {
 
     try {
         // Check if username already exists
-        const { data: existingProfile } = await supabase
+        const { data: existingProfile } = await supabaseClient
             .from('profiles')
             .select('username')
             .eq('username', username)
@@ -363,7 +403,7 @@ async function handleSignup(e) {
         // Create user with email format username@hometasks.local
         const email = `${username}@hometasks.local`;
         
-        const { data, error } = await supabase.auth.signUp({
+        const { data, error } = await supabaseClient.auth.signUp({
             email: email,
             password: password,
             options: {
@@ -377,7 +417,7 @@ async function handleSignup(e) {
         if (error) throw error;
 
         // Profile should be created automatically by trigger, but let's verify
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await supabaseClient
             .from('profiles')
             .select('username, role')
             .eq('id', data.user.id)
@@ -385,7 +425,7 @@ async function handleSignup(e) {
 
         if (profileError) {
             // If profile doesn't exist, create it manually
-            const { error: insertError } = await supabase
+            const { error: insertError } = await supabaseClient
                 .from('profiles')
                 .insert({
                     id: data.user.id,
@@ -413,7 +453,7 @@ async function handleSignup(e) {
 
 async function handleLogout() {
     try {
-        await supabase.auth.signOut();
+        await supabaseClient.auth.signOut();
         currentUser = null;
         tasks = [];
         showView('login');
