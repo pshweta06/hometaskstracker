@@ -1,4 +1,5 @@
 // App State
+console.log('app.js loaded and executing');
 let currentUser = null;
 let tasks = [];
 let lastToggledId = null;
