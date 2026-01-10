@@ -7,14 +7,34 @@ test('should load app and show login form', async ({ page }) => {
   // Wait for the page to load
   await page.waitForLoadState('networkidle');
 
-  // Check for JavaScript errors
+  // Check for JavaScript errors and network requests
   const jsErrors = [];
   const consoleMessages = [];
+  const networkRequests = [];
+  const networkFailures = [];
+
   page.on('pageerror', error => {
     jsErrors.push(error.message);
   });
+
   page.on('console', msg => {
     consoleMessages.push({ type: msg.type(), text: msg.text() });
+  });
+
+  page.on('request', request => {
+    networkRequests.push({
+      url: request.url(),
+      method: request.method(),
+      resourceType: request.resourceType()
+    });
+  });
+
+  page.on('requestfailed', request => {
+    networkFailures.push({
+      url: request.url(),
+      method: request.method(),
+      failure: request.failure()
+    });
   });
 
   // Wait for app initialization
@@ -22,6 +42,8 @@ test('should load app and show login form', async ({ page }) => {
 
   console.log('JavaScript errors:', jsErrors);
   console.log('All console messages:', consoleMessages);
+  console.log('Network requests:', networkRequests.filter(r => r.resourceType === 'script' || r.url.includes('supabase')));
+  console.log('Network failures:', networkFailures);
 
   // Check if login view is visible
   const loginView = page.locator('#login-view');
