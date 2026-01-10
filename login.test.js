@@ -3,12 +3,12 @@ const { test, expect } = require('@playwright/test');
 test.describe('HomeTasks Tracker Login', () => {
   test('should login successfully with admin credentials', async ({ page }) => {
     // Navigate to the local server
-    await page.goto('http://localhost:8000');
+    await page.goto('http://localhost:8001');
 
     // Wait for the page to load
     await page.waitForLoadState('networkidle');
 
-    // Check for JavaScript errors
+    // Check for JavaScript errors and console messages
     const jsErrors = [];
     const consoleMessages = [];
     page.on('pageerror', error => {
@@ -18,8 +18,8 @@ test.describe('HomeTasks Tracker Login', () => {
       consoleMessages.push({ type: msg.type(), text: msg.text() });
     });
 
-    // Wait for app initialization
-    await page.waitForTimeout(3000);
+    // Wait for app initialization and Supabase loading
+    await page.waitForTimeout(5000);
 
     console.log('JavaScript errors:', jsErrors);
     console.log('Console messages:', consoleMessages);
@@ -35,8 +35,18 @@ test.describe('HomeTasks Tracker Login', () => {
     // Click login button
     await page.click('button[type="submit"]');
 
-    // Wait for navigation/state change
-    await page.waitForTimeout(3000);
+    // Wait for navigation/state change (longer timeout for auth)
+    await page.waitForTimeout(5000);
+
+    // Check for error message first
+    const errorMsg = await page.locator('#login-error').textContent();
+    console.log('Login error message:', errorMsg);
+
+    if (errorMsg && errorMsg.trim()) {
+      console.log('Login failed with error:', errorMsg);
+      // If there's an error, the test should fail here
+      throw new Error(`Login failed: ${errorMsg}`);
+    }
 
     // Check if we're logged in (login view should be hidden)
     const loginViewAfter = page.locator('#login-view');
