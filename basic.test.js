@@ -42,7 +42,7 @@ test('should load app and show login form', async ({ page }) => {
 
   console.log('JavaScript errors:', jsErrors);
   console.log('All console messages:', consoleMessages);
-  console.log('Network requests:', networkRequests.filter(r => r.resourceType === 'script' || r.url.includes('supabase')));
+  console.log('All network requests:', networkRequests);
   console.log('Network failures:', networkFailures);
 
   // Check if login view is visible
