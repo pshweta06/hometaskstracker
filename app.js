@@ -131,7 +131,7 @@ async function saveTask(task) {
 
             if (error) throw error;
             return dbToJs(data);
-        } else {
+    } else {
             // Insert new task
             const { data, error } = await supabaseClient
                 .from('tasks')
@@ -274,9 +274,9 @@ async function checkSession() {
             };
 
             await loadData();
-            showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
-            updateUI();
-        } else {
+        showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
+        updateUI();
+    } else {
             showView('login');
         }
     } catch (error) {
@@ -348,17 +348,7 @@ async function handleLogin(e) {
     try {
         // Check if supabaseClient is initialized
         if (!supabaseClient) {
-            // Fallback: try to create client manually
-            console.log('No supabaseClient, trying fallback...');
-            if (typeof supabase !== 'undefined' && supabase.createClient) {
-                supabaseClient = supabase.createClient(
-                    'https://hinhffcnbjxorlrahtxc.supabase.co',
-                    'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp'
-                );
-                console.log('Fallback Supabase client created');
-            } else {
-                throw new Error('Supabase library not available. Please refresh the page.');
-            }
+            throw new Error('Supabase client not initialized. Please wait for the page to fully load.');
         }
 
         if (typeof supabaseClient.from !== 'function') {
@@ -422,9 +412,9 @@ async function handleSignup(e) {
             .single();
 
         if (existingProfile) {
-            errorEl.textContent = "Username already exists";
-            return;
-        }
+        errorEl.textContent = "Username already exists";
+        return;
+    }
 
         // Create user with email format username@hometasks.local
         const email = `${username}@hometasks.local`;
@@ -469,8 +459,8 @@ async function handleSignup(e) {
         };
 
         await loadData();
-        showView('userDashboard');
-        updateUI();
+    showView('userDashboard');
+    updateUI();
     } catch (error) {
         console.error('Signup error:', error);
         errorEl.textContent = error.message || "Error creating account";
@@ -480,9 +470,9 @@ async function handleSignup(e) {
 async function handleLogout() {
     try {
         await supabaseClient.auth.signOut();
-        currentUser = null;
+    currentUser = null;
         tasks = [];
-        showView('login');
+    showView('login');
     } catch (error) {
         console.error('Logout error:', error);
     }
@@ -692,33 +682,33 @@ async function handleSaveTask(e) {
 
     try {
         let task;
-        if (id) {
+    if (id) {
             // Update existing task
             task = tasks.find(t => t.id == id);
-            if (task) {
-                task.room = room;
-                task.task = taskName;
-                task.frequency = freq;
+        if (task) {
+            task.room = room;
+            task.task = taskName;
+            task.frequency = freq;
                 await saveTask(task);
-            }
-        } else {
+        }
+    } else {
             // Create new task
             task = {
                 id: null,
-                room: room,
-                task: taskName,
-                frequency: freq,
-                lastCompleted: null,
-                nextDue: new Date().toISOString().split('T')[0],
-                completedThisCycle: false
-            };
+            room: room,
+            task: taskName,
+            frequency: freq,
+            lastCompleted: null,
+            nextDue: new Date().toISOString().split('T')[0],
+            completedThisCycle: false
+        };
             const savedTask = await saveTask(task);
             tasks.push(savedTask);
-        }
+    }
 
         await loadData();
-        updateUI();
-        closeModal();
+    updateUI();
+    closeModal();
     } catch (error) {
         console.error('Error saving task:', error);
         alert('Error saving task. Please try again.');
@@ -743,8 +733,8 @@ async function deleteTask(id) {
     if (confirm("Are you sure you want to delete this task?")) {
         try {
             await deleteTaskFromDb(id);
-            tasks = tasks.filter(t => t.id != id);
-            updateUI();
+        tasks = tasks.filter(t => t.id != id);
+        updateUI();
         } catch (error) {
             console.error('Error deleting task:', error);
             alert('Error deleting task. Please try again.');
@@ -883,14 +873,14 @@ async function handleToggleTask(id) {
         await saveTask(task);
         // Reload tasks to ensure sync
         await loadData();
-        
-        // Brief delay before re-rendering to let the checkbox toggle visually
-        // and then trigger the "move to bottom" animation
-        setTimeout(() => {
-            updateUI();
-            // Clear the animation ID after a while so it doesn't re-trigger on other updates
-            setTimeout(() => { lastToggledId = null; }, 1000);
-        }, 150);
+    
+    // Brief delay before re-rendering to let the checkbox toggle visually
+    // and then trigger the "move to bottom" animation
+    setTimeout(() => {
+        updateUI();
+        // Clear the animation ID after a while so it doesn't re-trigger on other updates
+        setTimeout(() => { lastToggledId = null; }, 1000);
+    }, 150);
     } catch (error) {
         console.error('Error toggling task:', error);
         alert('Error updating task. Please try again.');
