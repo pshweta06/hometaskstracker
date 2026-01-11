@@ -585,7 +585,7 @@ async function handleSignup(e) {
 
         if (error) throw error;
 
-        // Profile should be created automatically by trigger, but let's verify
+        // Profile should be created automatically by trigger, but let's verify and ensure username is correct
         const { data: profile, error: profileError } = await supabaseClient
             .from('profiles')
             .select('username, role')
@@ -602,7 +602,22 @@ async function handleSignup(e) {
                     role: 'user'
                 });
 
-            if (insertError) throw insertError;
+            if (insertError) {
+                console.error('Profile insert error:', insertError);
+                throw insertError;
+            }
+        } else if (profile && profile.username !== username) {
+            // Update username if it doesn't match (trigger might have extracted wrong username)
+            console.log(`Updating username from '${profile.username}' to '${username}'`);
+            const { error: updateError } = await supabaseClient
+                .from('profiles')
+                .update({ username: username })
+                .eq('id', data.user.id);
+
+            if (updateError) {
+                console.error('Username update error:', updateError);
+                // Continue anyway - at least profile exists
+            }
         }
 
         currentUser = {
@@ -729,16 +744,31 @@ async function handleResetPassword(e) {
         }
 
         // Update the password
-        const { error } = await supabaseClient.auth.updateUser({
+        const { data: updateData, error } = await supabaseClient.auth.updateUser({
             password: newPassword
         });
 
-        if (error) throw error;
+        if (error) {
+            console.error('Password update error details:', error);
+            throw error;
+        }
+
+        console.log('Password update response:', updateData);
+
+        // Verify the update worked by checking the session
+        const { data: { session: verifySession } } = await supabaseClient.auth.getSession();
+        if (!verifySession) {
+            console.error('Session lost after password update');
+            throw new Error('Password update may have failed. Please try again.');
+        }
+
+        console.log('Password updated successfully, session verified');
 
         successEl.textContent = "Password updated successfully! Redirecting to login...";
         setTimeout(() => {
             // Sign out to force re-login with new password
             supabaseClient.auth.signOut();
+            pendingRecoveryToken = null; // Clear token
             showView('login');
             document.getElementById('reset-password-form').reset();
         }, 2000);
@@ -826,21 +856,52 @@ async function handleAcceptInvite(e) {
 
         if (passwordError) throw passwordError;
 
+        // Update email to username@hometasks.local format for consistent login
+        const email = `${username}@hometasks.local`;
+        const { error: emailError } = await supabaseClient.auth.updateUser({
+            email: email
+        });
+
+        if (emailError) {
+            console.error('Email update error:', emailError);
+            // Continue anyway - email might already be set or update might not be allowed
+        }
+
         // Update or create profile with username
         const userId = sessionData.user.id;
-        const { error: profileError } = await supabaseClient
+        
+        // First try to get existing profile
+        const { data: existingProfile } = await supabaseClient
             .from('profiles')
-            .upsert({
-                id: userId,
-                username: username,
-                role: 'user'
-            }, {
-                onConflict: 'id'
-            });
+            .select('username, role')
+            .eq('id', userId)
+            .single();
 
-        if (profileError) {
-            console.error('Profile update error:', profileError);
-            // Continue anyway - profile might already exist
+        if (existingProfile) {
+            // Update existing profile
+            const { error: updateError } = await supabaseClient
+                .from('profiles')
+                .update({ username: username, role: 'user' })
+                .eq('id', userId);
+            
+            if (updateError) {
+                console.error('Profile update error:', updateError);
+                throw updateError;
+            }
+        } else {
+            // Insert new profile
+            const { error: insertError } = await supabaseClient
+                .from('profiles')
+                .insert({
+                    id: userId,
+                    username: username,
+                    role: 'user'
+                });
+            
+            if (insertError) {
+                console.error('Profile insert error:', insertError);
+                throw insertError;
+            }
         }
 
         // Clear the stored token
