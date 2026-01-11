@@ -490,9 +490,18 @@ async function handleLogin(e) {
 
         console.log('✅ supabaseClient ready for login');
         
-        // For Supabase Auth, we need to use email. We'll use username@hometasks.local format
-        // Or you can modify to use email field instead
-        const email = `${usernameInput}@hometasks.local`;
+        // Support both real email addresses and username@hometasks.local format
+        // If input contains @, treat it as an email; otherwise append @hometasks.local
+        let email;
+        if (usernameInput.includes('@')) {
+            // Real email address (for invited users)
+            email = usernameInput;
+        } else {
+            // Username format (for self-signup users)
+            email = `${usernameInput}@hometasks.local`;
+        }
+        
+        console.log('Attempting login with email:', email);
         
         const { data, error } = await supabaseClient.auth.signInWithPassword({
             email: email,
@@ -663,8 +672,15 @@ async function handleForgotPassword(e) {
             }
         }
 
-        // Convert username to email format
-        const email = `${usernameInput}@hometasks.local`;
+        // Support both real email addresses and username@hometasks.local format
+        let email;
+        if (usernameInput.includes('@')) {
+            // Real email address
+            email = usernameInput;
+        } else {
+            // Username format
+            email = `${usernameInput}@hometasks.local`;
+        }
         
         // Get the current URL to use as redirect URL
         const redirectUrl = window.location.origin + window.location.pathname;
@@ -856,28 +872,22 @@ async function handleAcceptInvite(e) {
 
         if (passwordError) throw passwordError;
 
-        // Update email to username@hometasks.local format for consistent login
-        const email = `${username}@hometasks.local`;
-        const { error: emailError } = await supabaseClient.auth.updateUser({
-            email: email
-        });
-
-        if (emailError) {
-            console.error('Email update error:', emailError);
-            // Continue anyway - email might already be set or update might not be allowed
-        }
+        // Keep the original email (from invite) - don't change it
+        // Users will log in with their real email address
+        const currentEmail = sessionData.user.email;
+        console.log('User email remains:', currentEmail);
 
         // Update or create profile with username
         const userId = sessionData.user.id;
         
         // First try to get existing profile
-        const { data: existingProfile } = await supabaseClient
+        const { data: currentProfile } = await supabaseClient
             .from('profiles')
             .select('username, role')
             .eq('id', userId)
             .single();
 
-        if (existingProfile) {
+        if (currentProfile) {
             // Update existing profile
             const { error: updateError } = await supabaseClient
                 .from('profiles')
