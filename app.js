@@ -448,25 +448,37 @@ async function handleLogin(e) {
     console.log('window.supabaseClient.from:', typeof window.supabaseClient?.from);
 
     try {
-        // Check if supabaseClient is initialized
+        // Check if supabaseClient is initialized, wait if needed
         if (!supabaseClient) {
-            console.error('❌ supabaseClient is null/undefined');
             if (window.supabaseClient) {
                 console.log('✅ window.supabaseClient exists, using it as fallback');
                 supabaseClient = window.supabaseClient;
             } else {
-                throw new Error('Supabase client not initialized. Please wait for the page to fully load.');
+                // Wait for Supabase client to be initialized
+                console.log('⏳ Waiting for Supabase client to initialize...');
+                let attempts = 0;
+                while (!window.supabaseClient && attempts < 30) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                if (window.supabaseClient) {
+                    supabaseClient = window.supabaseClient;
+                    console.log('✅ Supabase client initialized after waiting');
+                } else {
+                    throw new Error('Supabase client not initialized. Please refresh the page.');
+                }
             }
         }
 
-        if (typeof supabaseClient.from !== 'function') {
+        // Verify client has required methods
+        if (!supabaseClient || typeof supabaseClient.from !== 'function' || typeof supabaseClient.auth !== 'object') {
             console.error('❌ supabaseClient details:', {
                 type: typeof supabaseClient,
                 keys: supabaseClient ? Object.keys(supabaseClient) : 'null',
                 from: typeof supabaseClient?.from,
                 auth: typeof supabaseClient?.auth
             });
-            throw new Error('Supabase client is not properly initialized. Missing .from() method.');
+            throw new Error('Supabase client is not properly initialized. Please refresh the page.');
         }
 
         console.log('✅ supabaseClient ready for login');
@@ -514,6 +526,30 @@ async function handleSignup(e) {
     errorEl.textContent = "";
 
     try {
+        // Ensure Supabase client is initialized
+        if (!supabaseClient) {
+            if (window.supabaseClient) {
+                supabaseClient = window.supabaseClient;
+            } else {
+                // Wait for Supabase client to be initialized
+                let attempts = 0;
+                while (!window.supabaseClient && attempts < 30) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                if (window.supabaseClient) {
+                    supabaseClient = window.supabaseClient;
+                } else {
+                    throw new Error('Supabase client not initialized. Please refresh the page.');
+                }
+            }
+        }
+
+        // Verify client has required methods
+        if (!supabaseClient || typeof supabaseClient.from !== 'function' || typeof supabaseClient.auth !== 'object') {
+            throw new Error('Supabase client is not properly initialized. Please refresh the page.');
+        }
+
         // Check if username already exists
         const { data: existingProfile } = await supabaseClient
             .from('profiles')

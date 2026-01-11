@@ -5,17 +5,17 @@
 const SUPABASE_URL = 'https://hinhffcnbjxorlrahtxc.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp';
 
-// Initialize Supabase client synchronously
+// Initialize Supabase client
 (function initializeSupabaseClient() {
-    // Wait for the supabaseLoaded promise from the HTML script
-    window.supabaseLoaded.then((supabaseLib) => {
-        if (supabaseLib && typeof supabaseLib.createClient === 'function') {
+    function tryInitialize() {
+        // Check if Supabase library is loaded
+        if (typeof supabase !== 'undefined' && typeof supabase.createClient === 'function') {
             try {
-                const { createClient } = supabaseLib;
+                const { createClient } = supabase;
                 const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
                 // Verify the client has the expected methods
-                console.log('Created client:', client);
+                console.log('Created Supabase client:', client);
                 console.log('Client methods:', {
                     hasFrom: typeof client?.from === 'function',
                     hasAuth: typeof client?.auth === 'object',
@@ -25,24 +25,62 @@ const SUPABASE_ANON_KEY = 'sb_publishable_udoEfz4UmZnSAR_tIGv_Cg_wvrS6Jdp';
 
                 if (client && typeof client.from === 'function' && typeof client.auth === 'object') {
                     window.supabaseClient = client;
-                    console.log('Supabase client initialized successfully');
+                    console.log('✅ Supabase client initialized successfully');
                     // Dispatch event to notify that supabaseClient is ready
                     window.dispatchEvent(new Event('supabaseReady'));
+                    return true;
                 } else {
-                    console.error('Supabase client created but missing required methods:', {
+                    console.error('❌ Supabase client created but missing required methods:', {
                         hasFrom: typeof client?.from === 'function',
                         hasAuth: typeof client?.auth === 'object',
                         client: !!client
                     });
+                    return false;
                 }
             } catch (error) {
-                console.error('Error creating Supabase client:', error);
+                console.error('❌ Error creating Supabase client:', error);
+                return false;
             }
         } else {
-            console.error('Supabase library not available or missing createClient method');
+            console.log('⏳ Supabase library not yet loaded, waiting...');
+            return false;
         }
-    }).catch((error) => {
-        console.error('Failed to load Supabase library:', error);
-    });
+    }
+
+    // Try immediately (in case script loaded synchronously)
+    if (tryInitialize()) {
+        return;
+    }
+
+    // If not ready, wait for DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            // Try again after DOM is ready
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds max wait
+            const interval = setInterval(() => {
+                attempts++;
+                if (tryInitialize() || attempts >= maxAttempts) {
+                    clearInterval(interval);
+                    if (attempts >= maxAttempts) {
+                        console.error('❌ Failed to initialize Supabase client after waiting');
+                    }
+                }
+            }, 100);
+        });
+    } else {
+        // DOM already loaded, try with retries
+        let attempts = 0;
+        const maxAttempts = 50;
+        const interval = setInterval(() => {
+            attempts++;
+            if (tryInitialize() || attempts >= maxAttempts) {
+                clearInterval(interval);
+                if (attempts >= maxAttempts) {
+                    console.error('❌ Failed to initialize Supabase client after waiting');
+                }
+            }
+        }, 100);
+    }
 })();
 
