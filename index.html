@@ -85,6 +85,22 @@
             </div>
         </section>
 
+        <!-- Accept Invite View (for email invite callback) -->
+        <section id="accept-invite-view" class="view hidden">
+            <div class="login-container">
+                <h1>Create Your Account</h1>
+                <p class="login-headline">Set up your account with a password</p>
+                <form id="accept-invite-form">
+                    <input type="text" id="invite-username" placeholder="Choose Username" required>
+                    <input type="password" id="invite-password" placeholder="Choose Password" required>
+                    <input type="password" id="invite-confirm-password" placeholder="Confirm Password" required>
+                    <button type="submit">Create Account</button>
+                    <p id="accept-invite-error" class="error-msg"></p>
+                    <p id="accept-invite-success" class="success-msg"></p>
+                </form>
+            </div>
+        </section>
+
         <!-- User Dashboard View -->
         <section id="user-dashboard" class="view hidden">
             <header>

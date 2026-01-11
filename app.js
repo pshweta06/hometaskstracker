@@ -70,9 +70,14 @@ const views = {
     signup: document.getElementById('signup-view'),
     forgotPassword: document.getElementById('forgot-password-view'),
     resetPassword: document.getElementById('reset-password-view'),
+    acceptInvite: document.getElementById('accept-invite-view'),
     userDashboard: document.getElementById('user-dashboard'),
     adminPanel: document.getElementById('admin-panel')
 };
+
+// Store tokens temporarily (don't set session until password is set)
+let pendingRecoveryToken = null;
+let pendingInviteToken = null;
 
 // Helper function to convert database snake_case to camelCase
 function dbToJs(dbTask) {
@@ -285,39 +290,31 @@ async function checkSession() {
                 
                 if (type === 'recovery' && accessToken) {
                     // User clicked password reset link from email
-                    console.log('Password reset detected, waiting for Supabase client...');
+                    console.log('Password reset detected - showing reset form (NOT logging in)');
                     
-                    // Wait for Supabase client to be initialized
-                    let attempts = 0;
-                    while (!supabaseClient && !window.supabaseClient && attempts < 20) {
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        if (window.supabaseClient) {
-                            supabaseClient = window.supabaseClient;
-                        }
-                        attempts++;
-                    }
-                    
-                    // Use window.supabaseClient if available
-                    if (!supabaseClient && window.supabaseClient) {
-                        supabaseClient = window.supabaseClient;
-                    }
-                    
-                    if (supabaseClient) {
-                        try {
-                            await supabaseClient.auth.setSession({
-                                access_token: accessToken,
-                                refresh_token: hashParams.get('refresh_token') || ''
-                            });
-                            console.log('Session set successfully');
-                        } catch (error) {
-                            console.error('Error setting session:', error);
-                            // Continue anyway - we can still show the reset form
-                        }
-                    } else {
-                        console.warn('Supabase client not available, but showing reset form anyway');
-                    }
+                    // Store the token but DON'T set session - user needs to set password first
+                    pendingRecoveryToken = {
+                        access_token: accessToken,
+                        refresh_token: hashParams.get('refresh_token') || ''
+                    };
                     
                     showView('resetPassword');
+                    // Clear the hash from URL
+                    window.history.replaceState(null, null, window.location.pathname);
+                    return;
+                }
+                
+                if ((type === 'invite' || type === 'signup') && accessToken) {
+                    // User clicked invite link from email
+                    console.log('Invite detected - showing account creation form (NOT logging in)');
+                    
+                    // Store the token but DON'T set session - user needs to create account first
+                    pendingInviteToken = {
+                        access_token: accessToken,
+                        refresh_token: hashParams.get('refresh_token') || ''
+                    };
+                    
+                    showView('acceptInvite');
                     // Clear the hash from URL
                     window.history.replaceState(null, null, window.location.pathname);
                     return;
@@ -336,6 +333,13 @@ async function checkSession() {
         // Ensure supabaseClient is set
         if (!supabaseClient && window.supabaseClient) {
             supabaseClient = window.supabaseClient;
+        }
+
+        // Don't auto-login if we have pending recovery or invite tokens
+        // (user needs to complete password reset or account creation first)
+        if (pendingRecoveryToken || pendingInviteToken) {
+            console.log('Pending token detected, skipping auto-login');
+            return;
         }
 
         // Check if user is already logged in
@@ -410,6 +414,9 @@ function setupEventListeners() {
     // Password Reset
     document.getElementById('forgot-password-form')?.addEventListener('submit', handleForgotPassword);
     document.getElementById('reset-password-form')?.addEventListener('submit', handleResetPassword);
+    
+    // Accept Invite
+    document.getElementById('accept-invite-form')?.addEventListener('submit', handleAcceptInvite);
 
     // Logout
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
@@ -705,6 +712,23 @@ async function handleResetPassword(e) {
             throw new Error('Supabase client not properly initialized. Please refresh the page.');
         }
 
+        // If we have a stored recovery token, set the session first
+        if (pendingRecoveryToken) {
+            console.log('Setting session with recovery token before password update');
+            const { error: sessionError } = await supabaseClient.auth.setSession({
+                access_token: pendingRecoveryToken.access_token,
+                refresh_token: pendingRecoveryToken.refresh_token
+            });
+            
+            if (sessionError) {
+                throw new Error('Invalid or expired reset link. Please request a new one.');
+            }
+            
+            // Clear the stored token
+            pendingRecoveryToken = null;
+        }
+
+        // Update the password
         const { error } = await supabaseClient.auth.updateUser({
             password: newPassword
         });
@@ -713,12 +737,137 @@ async function handleResetPassword(e) {
 
         successEl.textContent = "Password updated successfully! Redirecting to login...";
         setTimeout(() => {
+            // Sign out to force re-login with new password
+            supabaseClient.auth.signOut();
             showView('login');
             document.getElementById('reset-password-form').reset();
         }, 2000);
     } catch (error) {
         console.error('Reset password error:', error);
         errorEl.textContent = error.message || "Error updating password. The reset link may have expired.";
+    }
+}
+
+async function handleAcceptInvite(e) {
+    e.preventDefault();
+    const username = document.getElementById('invite-username').value.toLowerCase().trim();
+    const password = document.getElementById('invite-password').value;
+    const confirmPassword = document.getElementById('invite-confirm-password').value;
+    const errorEl = document.getElementById('accept-invite-error');
+    const successEl = document.getElementById('accept-invite-success');
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    if (password !== confirmPassword) {
+        errorEl.textContent = "Passwords do not match.";
+        return;
+    }
+
+    if (password.length < 6) {
+        errorEl.textContent = "Password must be at least 6 characters.";
+        return;
+    }
+
+    if (!pendingInviteToken) {
+        errorEl.textContent = "Invalid invite link. Please request a new invitation.";
+        return;
+    }
+
+    try {
+        // Ensure Supabase client is initialized
+        if (!supabaseClient) {
+            if (window.supabaseClient) {
+                supabaseClient = window.supabaseClient;
+            } else {
+                let attempts = 0;
+                while (!window.supabaseClient && attempts < 20) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                if (window.supabaseClient) {
+                    supabaseClient = window.supabaseClient;
+                } else {
+                    throw new Error('Supabase client not initialized. Please refresh the page.');
+                }
+            }
+        }
+
+        if (!supabaseClient || !supabaseClient.auth) {
+            throw new Error('Supabase client not properly initialized. Please refresh the page.');
+        }
+
+        // Set session with invite token
+        console.log('Setting session with invite token');
+        const { data: sessionData, error: sessionError } = await supabaseClient.auth.setSession({
+            access_token: pendingInviteToken.access_token,
+            refresh_token: pendingInviteToken.refresh_token
+        });
+
+        if (sessionError) {
+            throw new Error('Invalid or expired invite link. Please request a new invitation.');
+        }
+
+        // Check if username already exists
+        const { data: existingProfile } = await supabaseClient
+            .from('profiles')
+            .select('username')
+            .eq('username', username)
+            .single();
+
+        if (existingProfile) {
+            errorEl.textContent = "Username already exists. Please choose a different username.";
+            return;
+        }
+
+        // Update password
+        const { error: passwordError } = await supabaseClient.auth.updateUser({
+            password: password
+        });
+
+        if (passwordError) throw passwordError;
+
+        // Update or create profile with username
+        const userId = sessionData.user.id;
+        const { error: profileError } = await supabaseClient
+            .from('profiles')
+            .upsert({
+                id: userId,
+                username: username,
+                role: 'user'
+            }, {
+                onConflict: 'id'
+            });
+
+        if (profileError) {
+            console.error('Profile update error:', profileError);
+            // Continue anyway - profile might already exist
+        }
+
+        // Clear the stored token
+        pendingInviteToken = null;
+
+        // Get user profile
+        const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('username, role')
+            .eq('id', userId)
+            .single();
+
+        currentUser = {
+            id: userId,
+            username: profile?.username || username,
+            role: profile?.role || 'user'
+        };
+
+        successEl.textContent = "Account created successfully! Redirecting...";
+        setTimeout(async () => {
+            await loadData();
+            showView(currentUser.role === 'admin' ? 'adminPanel' : 'userDashboard');
+            updateUI();
+        }, 1500);
+    } catch (error) {
+        console.error('Accept invite error:', error);
+        errorEl.textContent = error.message || "Error creating account. The invite link may have expired.";
     }
 }
 
