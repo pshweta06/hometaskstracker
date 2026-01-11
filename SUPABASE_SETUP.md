@@ -49,7 +49,13 @@ This guide will help you set up Supabase for the HomeTasks Tracker application.
    - **Enable Email provider**: Make sure this is enabled
    - **Confirm email**: For development, you can disable this (uncheck "Enable email confirmations")
    - For production, keep email confirmations enabled
-3. Scroll down and click "Save"
+3. Under "URL Configuration" → "Redirect URLs":
+   - **Add your app URL**:
+     - For local development: `http://localhost:8000` (or whatever port you're using)
+     - For production: Your deployed URL (e.g., `https://yourdomain.com`)
+   - **Important**: Add both `http://localhost:8000` and `http://localhost:8000/` (with trailing slash)
+   - If using a different port, replace `8000` with your port number
+4. Scroll down and click "Save"
 
 ## Step 6: Create Default Admin User
 
@@ -102,6 +108,14 @@ This guide will help you set up Supabase for the HomeTasks Tracker application.
 - Check browser console for errors
 - Verify Row Level Security (RLS) policies are enabled
 - Make sure you're logged in (tasks require authentication)
+
+### Password reset not working
+- Make sure you've added your redirect URL in **Authentication** → **Settings** → **URL Configuration** → **Redirect URLs**
+- The redirect URL must match exactly where your app is hosted:
+  - Local: `http://localhost:PORT` (replace PORT with your port number)
+  - Production: Your full domain URL
+- Check that the email provider is enabled
+- Verify the username exists (password reset uses email format: `username@hometasks.local`)
 
 ## Security Notes
 

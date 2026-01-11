@@ -68,6 +68,8 @@ const DEFAULT_CSV_DATA = `Task ID,Room,Task,Frequency,Last Completed,,,Notes
 const views = {
     login: document.getElementById('login-view'),
     signup: document.getElementById('signup-view'),
+    forgotPassword: document.getElementById('forgot-password-view'),
+    resetPassword: document.getElementById('reset-password-view'),
     userDashboard: document.getElementById('user-dashboard'),
     adminPanel: document.getElementById('admin-panel')
 };
@@ -238,6 +240,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function initApp() {
     setupEventListeners();
+    
+    // Listen for hash changes (in case hash is added after page load)
+    window.addEventListener('hashchange', () => {
+        checkSession();
+    });
+    
     await checkSession();
 }
 
@@ -254,6 +262,48 @@ async function loadData() {
 
 async function checkSession() {
     try {
+        // Check for password reset hash in URL FIRST (before any Supabase calls)
+        const hash = window.location.hash.substring(1);
+        console.log('Checking hash:', hash);
+        if (hash) {
+            try {
+                const hashParams = new URLSearchParams(hash);
+                const accessToken = hashParams.get('access_token');
+                const type = hashParams.get('type');
+                
+                console.log('Hash params - type:', type, 'access_token:', accessToken ? 'present' : 'missing');
+                
+                if (type === 'recovery' && accessToken) {
+                    // User clicked password reset link from email
+                    console.log('Password reset detected, showing reset password view');
+                    // Set the session with the access token
+                    if (supabaseClient) {
+                        try {
+                            await supabaseClient.auth.setSession({
+                                access_token: accessToken,
+                                refresh_token: hashParams.get('refresh_token') || ''
+                            });
+                        } catch (error) {
+                            console.error('Error setting session:', error);
+                            // Continue anyway - we can still show the reset form
+                        }
+                    }
+                    showView('resetPassword');
+                    // Clear the hash from URL
+                    window.history.replaceState(null, null, window.location.pathname);
+                    return;
+                }
+            } catch (error) {
+                console.error('Error parsing hash:', error);
+            }
+        }
+
+        // If no Supabase client, just show login
+        if (!supabaseClient) {
+            showView('login');
+            return;
+        }
+
         // Check if user is already logged in
         const { data: { session } } = await supabaseClient.auth.getSession();
         
@@ -314,6 +364,18 @@ function setupEventListeners() {
         e.preventDefault();
         showView('login');
     });
+    document.getElementById('show-forgot-password')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showView('forgotPassword');
+    });
+    document.getElementById('show-login-from-forgot')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showView('login');
+    });
+
+    // Password Reset
+    document.getElementById('forgot-password-form')?.addEventListener('submit', handleForgotPassword);
+    document.getElementById('reset-password-form')?.addEventListener('submit', handleResetPassword);
 
     // Logout
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
@@ -489,6 +551,88 @@ async function handleLogout() {
     showView('login');
     } catch (error) {
         console.error('Logout error:', error);
+    }
+}
+
+async function handleForgotPassword(e) {
+    e.preventDefault();
+    const usernameInput = document.getElementById('forgot-username').value.toLowerCase().trim();
+    const errorEl = document.getElementById('forgot-password-error');
+    const successEl = document.getElementById('forgot-password-success');
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    try {
+        if (!supabaseClient) {
+            if (window.supabaseClient) {
+                supabaseClient = window.supabaseClient;
+            } else {
+                throw new Error('Supabase client not initialized.');
+            }
+        }
+
+        // Convert username to email format
+        const email = `${usernameInput}@hometasks.local`;
+        
+        // Get the current URL to use as redirect URL
+        const redirectUrl = window.location.origin + window.location.pathname;
+        
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+            redirectTo: redirectUrl
+        });
+
+        if (error) throw error;
+
+        successEl.textContent = "Password reset email sent! Check your email for the reset link.";
+        document.getElementById('forgot-password-form').reset();
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        errorEl.textContent = error.message || "Error sending reset email. Please check your username.";
+    }
+}
+
+async function handleResetPassword(e) {
+    e.preventDefault();
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    const errorEl = document.getElementById('reset-password-error');
+    const successEl = document.getElementById('reset-password-success');
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    if (newPassword !== confirmPassword) {
+        errorEl.textContent = "Passwords do not match.";
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        errorEl.textContent = "Password must be at least 6 characters.";
+        return;
+    }
+
+    try {
+        if (!supabaseClient) {
+            if (window.supabaseClient) {
+                supabaseClient = window.supabaseClient;
+            } else {
+                throw new Error('Supabase client not initialized.');
+            }
+        }
+
+        const { error } = await supabaseClient.auth.updateUser({
+            password: newPassword
+        });
+
+        if (error) throw error;
+
+        successEl.textContent = "Password updated successfully! Redirecting to login...";
+        setTimeout(() => {
+            showView('login');
+            document.getElementById('reset-password-form').reset();
+        }, 2000);
+    } catch (error) {
+        console.error('Reset password error:', error);
+        errorEl.textContent = error.message || "Error updating password. The reset link may have expired.";
     }
 }
 
