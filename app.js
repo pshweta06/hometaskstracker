@@ -246,6 +246,16 @@ async function initApp() {
         checkSession();
     });
     
+    // Listen for Supabase client ready event
+    window.addEventListener('supabaseReady', () => {
+        console.log('Supabase ready event received');
+        if (window.supabaseClient && !supabaseClient) {
+            supabaseClient = window.supabaseClient;
+            // Re-check session in case we're on password reset page
+            checkSession();
+        }
+    });
+    
     await checkSession();
 }
 
@@ -275,19 +285,38 @@ async function checkSession() {
                 
                 if (type === 'recovery' && accessToken) {
                     // User clicked password reset link from email
-                    console.log('Password reset detected, showing reset password view');
-                    // Set the session with the access token
+                    console.log('Password reset detected, waiting for Supabase client...');
+                    
+                    // Wait for Supabase client to be initialized
+                    let attempts = 0;
+                    while (!supabaseClient && !window.supabaseClient && attempts < 20) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        if (window.supabaseClient) {
+                            supabaseClient = window.supabaseClient;
+                        }
+                        attempts++;
+                    }
+                    
+                    // Use window.supabaseClient if available
+                    if (!supabaseClient && window.supabaseClient) {
+                        supabaseClient = window.supabaseClient;
+                    }
+                    
                     if (supabaseClient) {
                         try {
                             await supabaseClient.auth.setSession({
                                 access_token: accessToken,
                                 refresh_token: hashParams.get('refresh_token') || ''
                             });
+                            console.log('Session set successfully');
                         } catch (error) {
                             console.error('Error setting session:', error);
                             // Continue anyway - we can still show the reset form
                         }
+                    } else {
+                        console.warn('Supabase client not available, but showing reset form anyway');
                     }
+                    
                     showView('resetPassword');
                     // Clear the hash from URL
                     window.history.replaceState(null, null, window.location.pathname);
@@ -299,9 +328,14 @@ async function checkSession() {
         }
 
         // If no Supabase client, just show login
-        if (!supabaseClient) {
+        if (!supabaseClient && !window.supabaseClient) {
             showView('login');
             return;
+        }
+        
+        // Ensure supabaseClient is set
+        if (!supabaseClient && window.supabaseClient) {
+            supabaseClient = window.supabaseClient;
         }
 
         // Check if user is already logged in
@@ -611,12 +645,28 @@ async function handleResetPassword(e) {
     }
 
     try {
+        // Ensure Supabase client is initialized
         if (!supabaseClient) {
             if (window.supabaseClient) {
                 supabaseClient = window.supabaseClient;
             } else {
-                throw new Error('Supabase client not initialized.');
+                // Wait a bit for client to initialize
+                let attempts = 0;
+                while (!window.supabaseClient && attempts < 20) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                if (window.supabaseClient) {
+                    supabaseClient = window.supabaseClient;
+                } else {
+                    throw new Error('Supabase client not initialized. Please refresh the page.');
+                }
             }
+        }
+
+        // Verify client has auth method
+        if (!supabaseClient || !supabaseClient.auth) {
+            throw new Error('Supabase client not properly initialized. Please refresh the page.');
         }
 
         const { error } = await supabaseClient.auth.updateUser({
