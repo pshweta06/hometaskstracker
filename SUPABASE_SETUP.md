@@ -62,7 +62,7 @@ This guide will help you set up Supabase for the HomeTasks Tracker application.
 1. Go to **Authentication** → **Users** in your Supabase dashboard
 2. Click "Add user" → "Create new user"
 3. Fill in:
-   - **Email**: `admin@hometasks.local`
+   - **Email**: Your admin email address (e.g., `admin@example.com`)
    - **Password**: `admin123` (or your preferred password)
    - **Auto Confirm User**: Check this box (if email confirmation is disabled, this is automatic)
 4. Click "Create user"
@@ -70,22 +70,17 @@ This guide will help you set up Supabase for the HomeTasks Tracker application.
 6. Go to **SQL Editor** and run:
    ```sql
    UPDATE profiles 
-   SET role = 'admin' 
-   WHERE username = 'admin';
-   ```
-   
-   **Note**: The trigger should have created a profile automatically. If the username isn't 'admin', you may need to update it:
-   ```sql
-   UPDATE profiles 
-   SET username = 'admin', role = 'admin' 
+   SET role = 'admin', username = 'admin'
    WHERE id = 'YOUR_USER_UID_HERE';
    ```
+   
+   **Note**: The trigger should have created a profile automatically. Update the username and role as needed.
 
 ## Step 7: Test the Application
 
 1. Open `index.html` in your browser
 2. Try logging in with:
-   - **Username**: `admin`
+   - **Email**: The email address you used when creating the admin user
    - **Password**: `admin123` (or whatever you set)
 3. If login works, you're all set!
 
@@ -115,7 +110,7 @@ This guide will help you set up Supabase for the HomeTasks Tracker application.
   - Local: `http://localhost:PORT` (replace PORT with your port number)
   - Production: Your full domain URL
 - Check that the email provider is enabled
-- Verify the username exists (password reset uses email format: `username@hometasks.local`)
+- Verify the email address exists (password reset requires a valid email address)
 
 ## Security Notes
 

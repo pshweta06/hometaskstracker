@@ -59,7 +59,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     username_text TEXT;
 BEGIN
-    -- Extract username from email (format: username@hometasks.local)
+    -- Extract username from email (use metadata if available, otherwise use email prefix)
     username_text := SPLIT_PART(NEW.email, '@', 1);
     
     -- Fallback to email if no @ found, or use metadata if provided

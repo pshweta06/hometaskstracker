@@ -490,16 +490,8 @@ async function handleLogin(e) {
 
         console.log('✅ supabaseClient ready for login');
         
-        // Support both real email addresses and username@hometasks.local format
-        // If input contains @, treat it as an email; otherwise append @hometasks.local
-        let email;
-        if (usernameInput.includes('@')) {
-            // Real email address (for invited users)
-            email = usernameInput;
-        } else {
-            // Username format (for self-signup users)
-            email = `${usernameInput}@hometasks.local`;
-        }
+        // Use email directly (no @hometasks.local format)
+        const email = usernameInput;
         
         console.log('Attempting login with email:', email);
         
@@ -530,18 +522,25 @@ async function handleLogin(e) {
         updateUI();
     } catch (error) {
         console.error('Login error:', error);
-        errorEl.textContent = error.message || "Invalid username or password";
+        errorEl.textContent = error.message || "Invalid email or password";
     }
 }
 
 async function handleSignup(e) {
     e.preventDefault();
+    const email = document.getElementById('signup-email').value.toLowerCase().trim();
     const username = document.getElementById('signup-username').value.toLowerCase().trim();
     const password = document.getElementById('signup-password').value;
     const errorEl = document.getElementById('signup-error');
     errorEl.textContent = "";
 
     try {
+        // Validate email format
+        if (!email.includes('@') || !email.includes('.')) {
+            errorEl.textContent = "Please enter a valid email address";
+            return;
+        }
+
         // Ensure Supabase client is initialized
         if (!supabaseClient) {
             if (window.supabaseClient) {
@@ -574,13 +573,11 @@ async function handleSignup(e) {
             .single();
 
         if (existingProfile) {
-        errorEl.textContent = "Username already exists";
-        return;
-    }
+            errorEl.textContent = "Username already exists";
+            return;
+        }
 
-        // Create user with email format username@hometasks.local
-        const email = `${username}@hometasks.local`;
-        
+        // Create user with real email address
         const { data, error } = await supabaseClient.auth.signUp({
             email: email,
             password: password,
@@ -672,14 +669,13 @@ async function handleForgotPassword(e) {
             }
         }
 
-        // Support both real email addresses and username@hometasks.local format
-        let email;
-        if (usernameInput.includes('@')) {
-            // Real email address
-            email = usernameInput;
-        } else {
-            // Username format
-            email = `${usernameInput}@hometasks.local`;
+        // Use email directly (no @hometasks.local format)
+        const email = usernameInput;
+        
+        // Validate email format
+        if (!email.includes('@') || !email.includes('.')) {
+            errorEl.textContent = "Please enter a valid email address";
+            return;
         }
         
         // Get the current URL to use as redirect URL
