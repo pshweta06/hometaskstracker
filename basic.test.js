@@ -62,11 +62,22 @@ test('should load app and show login form', async ({ page }) => {
   const criticalErrors = jsErrors.filter(error =>
     error.includes('supabase') ||
     error.includes('createClient') ||
-    error.includes('from is not a function')
+    error.includes('from is not a function') ||
+    error.includes('Supabase client not initialized')
   );
+
+  // Verify Supabase client is initialized
+  const supabaseClientExists = await page.evaluate(() => {
+    return typeof window.supabaseClient !== 'undefined' && 
+           window.supabaseClient !== null &&
+           typeof window.supabaseClient.from === 'function';
+  });
 
   if (criticalErrors.length > 0) {
     console.log('Critical Supabase errors found:', criticalErrors);
-    // Don't fail the test, just log the errors
+    throw new Error(`Critical Supabase errors detected: ${criticalErrors.join(', ')}`);
   }
+
+  // Fail if Supabase client is not initialized
+  expect(supabaseClientExists).toBe(true);
 });

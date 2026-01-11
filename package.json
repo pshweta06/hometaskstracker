@@ -4,7 +4,10 @@
   "main": "app.js",
   "scripts": {
     "test": "playwright test",
-    "test:password-reset": "playwright test password-reset.test.js"
+    "test:integration": "playwright test integration.test.js",
+    "test:password-reset": "playwright test password-reset.test.js",
+    "test:login": "playwright test login.test.js",
+    "test:all": "playwright test"
   },
   "repository": {
     "type": "git",
